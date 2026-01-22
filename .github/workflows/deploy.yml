@@ -1,0 +1,103 @@
+name: Rails CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.3'
+        bundler-cache: true
+
+    - name: Run RuboCop
+      run: |
+        bundle exec rubocop --parallel
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '3.3'
+        bundler-cache: true
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpq-dev nodejs
+
+    - name: Setup Database
+      env:
+        RAILS_ENV: test
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
+      run: |
+        bundle exec rails db:create
+        bundle exec rails db:schema:load
+
+    - name: Precompile assets
+      env:
+        RAILS_ENV: production
+        SECRET_KEY_BASE: dummy_secret_for_assets
+      run: |
+        bundle exec rails assets:precompile
+
+    - name: Check for security vulnerabilities
+      run: |
+        bundle exec bundle audit check --update
+
+  deploy:
+    name: Deploy to DigitalOcean
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Deploy to Droplet
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.DROPLET_HOST }}
+        username: ${{ secrets.DROPLET_USER }}
+        key: ${{ secrets.DROPLET_SSH_KEY }}
+        port: ${{ secrets.DROPLET_PORT }}
+        script: |
+          cd ${{ secrets.APP_PATH }}
+          git pull origin main
+          bundle install --deployment --without development test
+          bundle exec rails db:migrate RAILS_ENV=production
+          bundle exec rails assets:precompile RAILS_ENV=production
+          sudo systemctl restart ${{ secrets.APP_SERVICE_NAME }}
+          echo "Deployment completed successfully!"
