@@ -1,0 +1,15 @@
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.3
+
+# Allow both quote styles
+Style/StringLiterals:
+  Enabled: false
+
+# Allow compact array brackets
+Layout/SpaceInsideArrayLiteralBrackets:
+  Enabled: false
+
+# Allow tabs (though spaces are recommended)
+Layout/IndentationStyle:
+  Enabled: false
